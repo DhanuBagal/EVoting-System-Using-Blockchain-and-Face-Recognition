@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
 # Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:root@localhost:3306/evoting_system'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Afling%40123@localhost:3306/evoting_system'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 

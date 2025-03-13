@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>View Votes</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h2>View Votes</h2>
+    </header>
+
+    <nav>
+        <a href="/add_party">Add Party</a>
+        <a href="/view_votes">View Votes</a>
+        <a href="/schedule_election">Schedule Election</a>
+        <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
+    </nav>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Voter ID</th>
+                <th>Candidate</th>
+                <th>Blockchain Hash</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for vote in votes %}
+            <tr>
+                <td>{{ vote.user_id }}</td>
+                <td>{{ vote.candidate }}</td>
+                <td>{{ vote.blockchain_hash }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

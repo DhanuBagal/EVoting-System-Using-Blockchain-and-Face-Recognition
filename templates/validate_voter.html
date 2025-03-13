@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validate Voter</title>
+    <style>
+        #video {
+            width: 640px;
+            height: 480px;
+            border: 1px solid black;
+        }
+        #canvas {
+            display: none;
+            margin-top: 10px;
+            border: 1px solid black;
+        }
+        #capture {
+            margin-top: 10px;
+        }
+        #loading {
+            display: none;
+            color: red;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Validate Your Identity</h2>
+
+    <video id="video" autoplay></video>
+    <button id="capture">Capture Photo</button>
+
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <p id="loading">Processing...</p>
+
+    <form id="photoForm" action="/validate_voter" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="photo" id="photoInput">
+        <button id="submitBtn" type="submit" disabled>Validate</button>
+    </form>
+
+    <script>
+        // Access the camera
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureButton = document.getElementById('capture');
+        const photoInput = document.getElementById('photoInput');
+        const context = canvas.getContext('2d');
+        const loadingText = document.getElementById('loading');
+        const submitBtn = document.getElementById('submitBtn');
+
+        // Request access to the user's camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(error => {
+                console.error("Error accessing the camera:", error);
+                alert("Unable to access the camera. Please allow camera permissions.");
+            });
+
+        // Capture photo on button click
+        captureButton.addEventListener('click', () => {
+            // Draw the video frame onto the canvas
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert the canvas image to a Base64 encoded string
+            const dataURL = canvas.toDataURL('image/png');
+
+            // Set the value of the hidden input field to the Base64 string
+            photoInput.value = dataURL;
+
+            // Display the captured image for user confirmation
+            canvas.style.display = 'block';
+
+            // Enable the submit button
+            submitBtn.disabled = false;
+        });
+
+        // Display loading text when the form is submitted
+        document.getElementById('photoForm').addEventListener('submit', function() {
+            loadingText.style.display = 'block';
+        });
+    </script>
+</body>
+</html>

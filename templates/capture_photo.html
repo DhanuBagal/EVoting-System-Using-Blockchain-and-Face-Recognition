@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capture Photo</title>
+    <style>
+        #video {
+            width: 640px;
+            height: 480px;
+            border: 1px solid black;
+        }
+        #canvas {
+            display: none;
+            margin-top: 10px;
+            border: 1px solid black;
+        }
+        .captured-image {
+            width: 640px;
+            height: 480px;
+            margin-top: 10px;
+        }
+        #loading {
+            display: none;
+            color: red;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Capture Your Photo</h2>
+
+    <video id="video" autoplay></video>
+    <div id="capturedPhotos"></div>
+    <p id="loading">Processing...</p>
+
+    <!-- Change action to your Flask route -->
+    <form id="photoForm" action="/save_photo" method="POST">
+        <input type="hidden" name="photo" id="photoInput">
+        <button id="submitBtn" type="submit" disabled>Submit</button>
+    </form>
+
+    <script>
+        // Access the camera
+        const video = document.getElementById('video');
+        const capturedPhotosContainer = document.getElementById('capturedPhotos');
+        const photoInput = document.getElementById('photoInput');
+        const loadingText = document.getElementById('loading');
+        const submitBtn = document.getElementById('submitBtn');
+
+        // Request access to the user's camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                capturePhotos();
+            })
+            .catch(error => {
+                console.error("Error accessing the camera:", error);
+                alert("Unable to access the camera. Please allow camera permissions.");
+            });
+
+        // Function to capture photos automatically
+        function capturePhotos() {
+            const maxPhotos = 5;
+            const intervalTime = 500; // 0.5 second
+            let capturedPhotos = [];
+
+            let captureInterval = setInterval(() => {
+                if (capturedPhotos.length < maxPhotos) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 640;
+                    canvas.height = 480;
+                    const context = canvas.getContext('2d');
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const dataURL = canvas.toDataURL('image/png');
+                    capturedPhotos.push(dataURL);
+
+                    // Display the captured image
+                    const img = document.createElement('img');
+                    img.src = dataURL;
+                    img.className = 'captured-image';
+                    capturedPhotosContainer.appendChild(img);
+                } else {
+                    clearInterval(captureInterval);
+                    // After capturing, set the value of the hidden input field to the Base64 string of all captured images
+                    photoInput.value = JSON.stringify(capturedPhotos);
+                    // Enable the submit button
+                    submitBtn.disabled = false;
+                }
+            }, intervalTime);
+        }
+
+        // Display loading text when the form is submitted
+        document.getElementById('photoForm').addEventListener('submit', function() {
+            loadingText.style.display = 'block';
+        });
+    </script>
+</body>
+</html>

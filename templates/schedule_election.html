@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <title>Schedule Election</title>
+</head>
+<body>
+    <header>
+        <h2>Schedule Election</h2>
+    </header>
+    <nav>
+                <a href="/add_party">Add Party</a>
+                <a href="/view_votes">View Votes</a>
+                <a href="/schedule_election">Schedule Election</a>
+                <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
+            </nav>
+    <form action="/schedule_election" method="POST">
+        <label for="election_date">Election Date:</label>
+        <input type="date" id="election_date" name="election_date" required>
+        <button type="submit">Schedule Election</button>
+    </form>
+</body>
+</html>

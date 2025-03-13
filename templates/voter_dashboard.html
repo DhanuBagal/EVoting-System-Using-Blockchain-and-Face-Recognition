@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <title>Voter Dashboard</title>
+</head>
+<body>
+    <header>
+        <h2>Voter Dashboard</h2>
+    </header>
+    <nav>
+        <!-- <a href="{{ url_for('cast_vote') }}">Cast Vote</a> -->
+        <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
+    </nav>
+
+    <h3>Available Candidates in Your Area</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Party Name</th>
+                <th>Candidate Name</th>
+                <th>Area</th>
+                <th>Photo</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for candidate in candidates %}
+            <tr>
+                <td>{{ candidate.party_name }}</td>
+                <td>{{ candidate.candidate_name }}</td>
+                <td>{{ candidate.area }}</td>
+                <td><img src="data:image/jpeg;base64,{{ candidate.party_photo }}" alt="{{ candidate.party_name }} Photo" width="100"></td>
+                <td>
+                    <form action="{{ url_for('cast_vote') }}" method="POST">
+    <input type="hidden" name="voter_id" value="{{ voter_id }}"> <!-- Include voter ID -->
+    <input type="hidden" name="party_name" value="{{ candidate.party_name }}"> <!-- Include party name -->
+    <input type="hidden" name="candidate" value="{{ candidate.candidate_name }}"> <!-- Include candidate name -->
+    <button type="submit">Vote</button>
+</form>
+
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

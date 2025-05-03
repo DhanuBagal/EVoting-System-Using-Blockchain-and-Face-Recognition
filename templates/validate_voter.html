@@ -6,8 +6,8 @@
     <title>Validate Voter</title>
     <style>
         #video {
-            width: 640px;
-            height: 480px;
+            width: 400px;
+            height: 300px;
             border: 1px solid black;
         }
         #canvas {
@@ -31,16 +31,15 @@
     <video id="video" autoplay></video>
     <button id="capture">Capture Photo</button>
 
-    <canvas id="canvas" width="640" height="480"></canvas>
+    <canvas id="canvas" width="400" height="300"></canvas>
     <p id="loading">Processing...</p>
 
-    <form id="photoForm" action="/validate_voter" method="POST" enctype="multipart/form-data">
+    <form id="photoForm" action="/validate_voter" method="POST" enctype="application/x-www-form-urlencoded">
         <input type="hidden" name="photo" id="photoInput">
         <button id="submitBtn" type="submit" disabled>Validate</button>
     </form>
 
     <script>
-        // Access the camera
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const captureButton = document.getElementById('capture');
@@ -49,35 +48,35 @@
         const loadingText = document.getElementById('loading');
         const submitBtn = document.getElementById('submitBtn');
 
-        // Request access to the user's camera
+        // Start the webcam
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => {
                 video.srcObject = stream;
             })
             .catch(error => {
-                console.error("Error accessing the camera:", error);
-                alert("Unable to access the camera. Please allow camera permissions.");
+                console.error("Camera access error:", error);
+                alert("Please allow camera access.");
             });
 
-        // Capture photo on button click
+        // Capture photo
         captureButton.addEventListener('click', () => {
-            // Draw the video frame onto the canvas
+            // Draw the current video frame onto canvas
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // Convert the canvas image to a Base64 encoded string
-            const dataURL = canvas.toDataURL('image/png');
+            // Compress the image to JPEG format, 0.7 quality
+            const compressedDataURL = canvas.toDataURL('image/jpeg', 0.7);
 
-            // Set the value of the hidden input field to the Base64 string
-            photoInput.value = dataURL;
+            // Set compressed image as form value
+            photoInput.value = compressedDataURL;
 
-            // Display the captured image for user confirmation
+            // Show preview
             canvas.style.display = 'block';
 
-            // Enable the submit button
+            // Enable submit
             submitBtn.disabled = false;
         });
 
-        // Display loading text when the form is submitted
+        // Show "Processing..." when submitting
         document.getElementById('photoForm').addEventListener('submit', function() {
             loadingText.style.display = 'block';
         });

@@ -9,7 +9,7 @@ import Blockchain
 import re
 import base64
 from io import BytesIO
-from flask import render_template, request, redirect, url_for, session
+from werkzeug.utils import secure_filename
 
 
 # Define paths for the models
@@ -47,8 +47,8 @@ class User(db.Model):
 
 class Party(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    party_name = db.Column(db.String(100), nullable=False)
-    party_photo = db.Column(db.LargeBinary, nullable=False)
+    party_name = db.Column(db.String(100), unique=True)
+    logo_filename = db.Column(db.String(100))  # filename of stored logo
 
 
 class Candidate(db.Model):
@@ -356,55 +356,89 @@ def admin_dashboard():
         return render_template('admin_dashboard.html')
     return redirect(url_for('login'))
 
-
 @app.route('/add_party', methods=['GET', 'POST'])
 def add_party():
     if 'userid' in session and session['role'] == 'admin':
+        # List of Solapur talukas
+        solapur_talukas = ["Solapur North", "Solapur South", "Akkalkot", "Barshi", "Karmala", "Madha", "Mangalwedha", "Malshiras", "Pandharpur", "Sangola"]
+
+        # Get all parties from DB
+        maharashtra_parties = Party.query.all()
+        parties_logo_map = {str(p.id): p.logo_filename for p in maharashtra_parties}
+
         if request.method == 'POST':
-            party_id = request.form.get('party_id')
-            party_name = request.form['party_name']
-            party_photo = request.files['party_photo'].read()
+            party_id = request.form.get('party_id')  # The party ID from the form
+            selected_party_id = request.form['party_name']  # The party ID selected by the user
             candidate_name = request.form['candidate_name']
             area = request.form['area']
 
-            if party_id:  # Update existing party
-                existing_party = Party.query.get(party_id)
-                if existing_party:
-                    existing_party.party_name = party_name
-                    existing_party.party_photo = party_photo
-
-                    existing_candidate = Candidate.query.filter_by(party_id=party_id, area=area).first()
-                    if existing_candidate:
-                        existing_candidate.candidate_name = candidate_name
-                    else:
-                        new_candidate = Candidate(candidate_name=candidate_name, party_id=party_id, area=area)
-                        db.session.add(new_candidate)
-
-                    db.session.commit()
-                    message = "Party and candidate details updated successfully."
+            # Handle logo file (if provided)
+            if 'party_photo' in request.files:
+                logo_file = request.files['party_photo']
+                if logo_file:
+                    # Secure the filename and save it
+                    filename = secure_filename(logo_file.filename)
+                    logo_file.save(os.path.join('static/party_logos', filename))
                 else:
-                    message = "Party not found."
-            else:  # Add new party
-                new_party = Party(party_name=party_name, party_photo=party_photo)
-                db.session.add(new_party)
-                db.session.commit()
+                    filename = None
+            else:
+                filename = None
 
-                new_candidate = Candidate(candidate_name=candidate_name, party_id=new_party.id, area=area)
-                db.session.add(new_candidate)
-                db.session.commit()
+            # Check if candidate name already exists in the database
+            if Candidate.query.filter_by(candidate_name=candidate_name).first():
+                message = "Candidate name already exists."
+            # Check if the same party already has a candidate in the selected area
+            elif Candidate.query.filter_by(party_id=selected_party_id, area=area).first():
+                message = "This party already has a candidate in the selected area."
+            else:
+                # If party_id is present, update the existing candidate and party details
+                if party_id:  # Update existing candidate
+                    existing_party = Party.query.get(party_id)
+                    if existing_party:
+                        existing_party.party_name = request.form['party_name']
+                        if filename:
+                            existing_party.logo_filename = filename
 
-                message = "Party and candidate added successfully."
+                        # Check if the candidate already exists for the party and area
+                        existing_candidate = Candidate.query.filter_by(party_id=party_id, area=area).first()
+                        if existing_candidate:
+                            existing_candidate.candidate_name = candidate_name
+                        else:
+                            new_candidate = Candidate(candidate_name=candidate_name, party_id=party_id, area=area)
+                            db.session.add(new_candidate)
+                        db.session.commit()
+                        message = "Party and candidate details updated successfully."
+                    else:
+                        message = "Party not found."
+                else:  # Add new candidate under an existing party
+                    # If party doesn't exist, retrieve it from the DB based on selected_party_id
+                    party = Party.query.get(selected_party_id)
+                    if party:
+                        # Only add the candidate to the existing party
+                        new_candidate = Candidate(candidate_name=candidate_name, party_id=party.id, area=area)
+                        db.session.add(new_candidate)
+                        db.session.commit()
+                        message = "Candidate added successfully."
+                    else:
+                        message = "Selected party does not exist."
 
-            all_candidates = Candidate.query.join(Party).add_columns(Candidate.candidate_name, Candidate.area,
-                                                                     Party.party_name, Candidate.party_id).all()
+        all_candidates = Candidate.query.join(Party).add_columns(
+            Candidate.candidate_name, Candidate.area,
+            Party.party_name, Candidate.party_id
+        ).all()
 
-            return render_template('add_party.html', all_candidates=all_candidates, message=message)
-
-        all_candidates = Candidate.query.join(Party).add_columns(Candidate.candidate_name, Candidate.area,
-                                                                 Party.party_name, Candidate.party_id).all()
-        return render_template('add_party.html', all_candidates=all_candidates)
+        return render_template(
+            'add_party.html',
+            all_candidates=all_candidates,
+            solapur_talukas=solapur_talukas,
+            maharashtra_parties=maharashtra_parties,
+            parties_logo_map=parties_logo_map,
+            message=locals().get('message')
+        )
 
     return redirect(url_for('login'))
+
+
 
 @app.route('/cast_vote', methods=['POST'])
 def cast_vote():

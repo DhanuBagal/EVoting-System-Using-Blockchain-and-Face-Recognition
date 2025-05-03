@@ -5,55 +5,141 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Add/Update Party</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #aaa;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        h3 {
+            margin-top: 40px;
+        }
+    </style>
 </head>
 <body>
     <header>
         <h2>Add or Update Party</h2>
     </header>
+
     <nav>
         <a href="/add_party">Add Party</a>
         <a href="/view_votes">View Votes</a>
         <a href="/schedule_election">Schedule Election</a>
-        <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
+        <a href="{{ url_for('logout') }}">Logout</a>
     </nav>
+
     <form action="/add_party" method="POST" enctype="multipart/form-data">
         <input type="hidden" id="party_id" name="party_id">
 
-        <label for="party_name">Party Name:</label>
-        <input type="text" id="party_name" name="party_name" required>
+        <label for="party_name">Select Party:</label>
+        <select id="party_name" name="party_name" required>
+            <option value="">-- Select a Party --</option>
+            {% for party in maharashtra_parties %}
+                <option value="{{ party.id }}">{{ party.party_name }}</option>
+            {% endfor %}
+        </select>
 
-        <label for="party_photo">Party Photo:</label>
-        <input type="file" id="party_photo" name="party_photo" required>
+        <label>Party Logo:</label>
+        <div id="party_logo_preview">
+            <img id="logo_img" src="" alt="Party Logo" height="80px" style="display:none;" />
+        </div>
 
         <label for="candidate_name">Candidate Name:</label>
         <input type="text" id="candidate_name" name="candidate_name" required>
 
-        <label for="area">Area:</label>
-        <input type="text" id="area" name="area" required>
+        <label for="area">Select Taluka:</label>
+        <select id="area" name="area" required>
+            <option value="">-- Select Taluka --</option>
+            {% for taluka in solapur_talukas %}
+                <option value="{{ taluka }}">{{ taluka }}</option>
+            {% endfor %}
+        </select>
 
         <button type="submit">Submit</button>
     </form>
 
     {% if message %}
-    <p>{{ message }}</p>
+        <p style="color: green; font-weight: bold;">{{ message }}</p>
     {% endif %}
 
-    <h3>Existing Candidates</h3>
-    <ul>
-        {% for candidate in all_candidates %}
-        <li>
-            {{ candidate.party_name }} - {{ candidate.candidate_name }} ({{ candidate.area }})
-            <button onclick="editParty('{{ candidate.party_id }}', '{{ candidate.party_name }}', '{{ candidate.candidate_name }}', '{{ candidate.area }}')">Edit</button>
-        </li>
-        {% endfor %}
-    </ul>
+    <h3>Existing Candidates (Grouped by Area)</h3>
+    {% set grouped = {} %}
+    {% for candidate in all_candidates %}
+        {% set area = candidate.area %}
+        {% if area not in grouped %}
+            {% set _ = grouped.update({area: []}) %}
+        {% endif %}
+        {% set _ = grouped[area].append(candidate) %}
+    {% endfor %}
+
+    {% for area, candidates in grouped.items() %}
+        <h4>{{ area }}</h4>
+        <table>
+            <thead>
+                <tr>
+                    <th>Candidate Name</th>
+                    <th>Party</th>
+                    <th>Logo</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in candidates %}
+                <tr>
+                    <td>{{ candidate.candidate_name }}</td>
+                    <td>{{ candidate.party_name }}</td>
+                    <td>
+                        {% if parties_logo_map[candidate.party_id|string] %}
+                            <img src="/static/party_logos/{{ parties_logo_map[candidate.party_id|string] }}" alt="Logo" height="40">
+                        {% else %}
+                            No Logo
+                        {% endif %}
+                    </td>
+                    <td>
+                        <button onclick="editParty('{{ candidate.party_id }}', '{{ candidate.party_name }}', '{{ candidate.candidate_name }}', '{{ candidate.area }}')">Edit</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endfor %}
 
     <script>
+        const partiesLogoMap = {{ parties_logo_map | tojson }};
+        const partySelect = document.getElementById('party_name');
+        const logoImg = document.getElementById('logo_img');
+
+        partySelect.addEventListener('change', function () {
+            const selectedId = this.value;
+            if (selectedId && partiesLogoMap[selectedId]) {
+                logoImg.src = "/static/party_logos/" + partiesLogoMap[selectedId];
+                logoImg.style.display = "block";
+            } else {
+                logoImg.src = "";
+                logoImg.style.display = "none";
+            }
+        });
+
         function editParty(party_id, party_name, candidate_name, area) {
             document.getElementById('party_id').value = party_id;
-            document.getElementById('party_name').value = party_name;
             document.getElementById('candidate_name').value = candidate_name;
             document.getElementById('area').value = area;
+
+            for (let i = 0; i < partySelect.options.length; i++) {
+                if (partySelect.options[i].text === party_name) {
+                    partySelect.selectedIndex = i;
+                    partySelect.dispatchEvent(new Event('change'));
+                    break;
+                }
+            }
         }
     </script>
 </body>

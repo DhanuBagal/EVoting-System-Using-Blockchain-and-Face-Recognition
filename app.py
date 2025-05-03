@@ -7,6 +7,9 @@ import numpy as np
 import cv2,dlib
 import Blockchain
 import re
+import base64
+from io import BytesIO
+from flask import render_template, request, redirect, url_for, session
 
 
 # Define paths for the models
@@ -20,6 +23,7 @@ recognizer = dlib.face_recognition_model_v1(FACE_RECOGNITION_MODEL_PATH)
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
+
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Afling%40123@localhost:3306/evoting_system'
@@ -145,70 +149,49 @@ def register():
     return render_template('register.html')
 
 
-
 @app.route('/capture_photo', methods=['GET', 'POST'])
 def capture_photo():
     # Print statement to indicate that the capture photo page is being accessed
     print("Accessing capture photo page.")
     return render_template('capture_photo.html')  # Assume you have a form to capture the photo
 
+# Set max content length to 16MB
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
 
 @app.route('/save_photo', methods=['POST'])
 def save_photo():
     if 'userid' in session:
-        photo_data = request.form['photo']
-        print("Received photo data for user:", session['userid'])
+        # Check if file is present
+        file = request.files.get('photo')
+        if not file:
+            return "No photo uploaded", 400
 
-        if not photo_data or ',' not in photo_data:
-            print("Invalid photo data received.")
-            return "Invalid photo data", 400
+        # Save the uploaded photo
+        voter_id = session['userid']  # Get voter ID from session
+        voter_dir = f"static/photo/user/{voter_id}"
+        os.makedirs(voter_dir, exist_ok=True)  # Ensure the directory exists
 
-        try:
-            # Split and decode the base64 data
-            photo_base64 = photo_data.split(',')[1]
-            voter_id = session['userid']  # Get voter ID from session
-            voter_dir = f"static/photo/user/{voter_id}"
-            os.makedirs(voter_dir, exist_ok=True)  # Ensure the directory exists
-            print(f"Directory created for voter ID: {voter_id} at {voter_dir}")
+        file_path = os.path.join(voter_dir, f"photo_{voter_id}.png")
+        file.save(file_path)
 
-            max_photos = 5
-            for count in range(max_photos):
-                # Decode the base64 image data
-                image_data = base64.b64decode(photo_base64)
-                image_array = np.frombuffer(image_data, dtype=np.uint8)
-                image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        # Process the uploaded photo (e.g., detecting faces)
+        image = cv2.imread(file_path)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5)
 
-                # Detect faces in the image
-                face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-                gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                faces = face_cascade.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5)
+        if len(faces) == 0:
+            return "No face detected", 400
 
-                print(f"Detected {len(faces)} faces in the photo.")
+        # Crop and save the detected face
+        for (x, y, w, h) in faces:
+            face_image = image[y:y+h, x:x+w]
+            face_image_path = os.path.join(voter_dir, f"{voter_id}_face.png")
+            cv2.imwrite(face_image_path, face_image)
 
-                if len(faces) == 0:
-                    print("No face detected.")
-                    return "No face detected", 400
+        return redirect(url_for('login'))
 
-                # Crop and save the detected face
-                for (x, y, w, h) in faces:
-                    face_image = image[y:y+h, x:x+w]
-                    img_path = os.path.join(voter_dir, f"face_{count}.jpg")
-                    cv2.imwrite(img_path, face_image)
-                    print(f"Saved face image to {img_path}")
-                    break  # Only crop the first detected face for this photo
-
-            print("Photos saved successfully. Redirecting to login page.")
-            # Redirect to the login page after saving the photos
-            return redirect(url_for('login'))
-
-        except (IndexError, ValueError) as e:
-            print(f"Error processing photo: {e}")
-            return f"Error processing photo: {e}", 400
-
-    print("Session expired or user ID not found.")
     return "Session expired or user ID not found", 400
-
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     # User login
@@ -220,7 +203,7 @@ def login():
         print(f"Attempting to log in user: {userid} with role: {role}")
 
         # Admin login
-        if userid == "admin" and password == "admin" and role == "admin":
+        if userid == "admin" and password == "Admin@1234" and role == "admin":
             session['userid'] = userid
             session['role'] = role
             print(f"Admin {userid} logged in successfully.")

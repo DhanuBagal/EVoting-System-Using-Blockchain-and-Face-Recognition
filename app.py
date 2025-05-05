@@ -1,15 +1,18 @@
-from flask import Flask, jsonify, request
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, jsonify, request, render_template, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 import os
-import base64, time
-import numpy as np
-import cv2,dlib
-import Blockchain
 import re
+import cv2
+import dlib
+import numpy as np
+import Blockchain
 import base64
-from io import BytesIO
 from werkzeug.utils import secure_filename
+from datetime import datetime
+from sqlalchemy import text
+from aadhaar_verification import complete_aadhaar_verification
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func
 
 
 # Define paths for the models
@@ -23,7 +26,7 @@ recognizer = dlib.face_recognition_model_v1(FACE_RECOGNITION_MODEL_PATH)
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
-
+app.config['UPLOAD_FOLDER'] = 'static/uploads/'
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Afling%40123@localhost:3306/evoting_system'
@@ -38,17 +41,31 @@ face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_fronta
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     userid = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(50), nullable=False)
-    phone = db.Column(db.String(20), nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    phone = db.Column(db.String(10), nullable=False)
     area = db.Column(db.String(100), nullable=False)
+    dob = db.Column(db.String(10), nullable=False)  # Format: YYYY-MM-DD
+    aadhaar_photo = db.Column(db.String(255), nullable=False)  # File path to Aadhaar photo
+    profile_photo = db.Column(db.String(255), nullable=True)  # File path to profile photo
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # Automatically set the creation timestamp
+
+class Temp_Users(db.Model):
+    userid = db.Column(db.String(50), primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    phone = db.Column(db.String(10), nullable=False)
+    area = db.Column(db.String(100), nullable=False)
+    dob = db.Column(db.String(10), nullable=False)
+    aadhaar_photo = db.Column(db.String(255), nullable=False)  # Aadhaar photo file path
 
 
 class Party(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    party_name = db.Column(db.String(100), unique=True)
-    logo_filename = db.Column(db.String(100))  # filename of stored logo
+    party_name = db.Column(db.String(100), nullable=False)
+    logo_filename = db.Column(db.String(255))  # Filename of logo in /static/party_logos/
 
 
 class Candidate(db.Model):
@@ -65,7 +82,6 @@ class Vote(db.Model):
     user_id = db.Column(db.Integer, nullable=False)
     candidate = db.Column(db.String(100), nullable=False)
     blockchain_hash = db.Column(db.String(255), nullable=False)  # Ensure this is NOT NULL
-
 
 
 # Initialize the blockchain
@@ -90,19 +106,14 @@ def checkUser(name):
                 print(f"No transactions found in block {i}.")
     return flag
 
-
-
-
 @app.route('/')
 def home():
     # Render home page
     return render_template('index.html')
 
 
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    # User registration
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
@@ -110,42 +121,91 @@ def register():
         password = request.form['password']
         phone = request.form['phone']
         area = request.form['area']
+        dob = request.form['dob']
+        aadhaar_photo = request.files['aadhaar_photo']
 
-        # Print the received data for debugging
-        print("Received registration data:")
-        print(f"Name: {name}")
-        print(f"Email: {email}")
-        print(f"User ID: {userid}")
-        print(f"Password: {password}")
-        print(f"Phone: {phone}")
-        print(f"Area: {area}")
+        # Normalize inputs
+        userid_lower = userid.lower().strip()
+        name_lower = name.lower().strip()
+        email_lower = email.lower().strip()
 
-        # Validate password
+        # Check existence in User table
+        existing_user = User.query.filter(
+            (func.lower(User.userid) == userid_lower) |
+            (func.lower(User.name) == name_lower) |
+            (func.lower(User.email) == email_lower)
+        ).first()
+
+        # Check existence in temp_users table using raw SQL
+        temp_user_query = text("""
+            SELECT * FROM temp_users 
+            WHERE LOWER(userid) = :userid OR LOWER(name) = :name OR LOWER(email) = :email
+        """)
+        temp_user_result = db.session.execute(temp_user_query, {
+            'userid': userid_lower,
+            'name': name_lower,
+            'email': email_lower
+        }).first()
+
+        if existing_user or temp_user_result:
+            return render_template('register.html',
+                                   error_message="User with same ID, name, or email already exists. Please try another.")
+
+        # Password and phone validation
         password_pattern = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$'
         if not re.match(password_pattern, password):
-            return "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
-
-        # Validate phone number
+            return render_template('register.html', error_message="Weak password format.")
         if len(phone) != 10 or not phone.isdigit():
-            return "Phone number must be exactly 10 digits and contain only numbers."
+            return render_template('register.html', error_message="Invalid phone number.")
 
-        # Create and save new user in the database
-        try:
-            new_user = User(name=name, email=email, userid=userid, password=password, phone=phone, area=area)
-            db.session.add(new_user)
-            db.session.commit()
-            print("User registered successfully.")
+        # Aadhaar photo validation
+        if aadhaar_photo:
+            ext = os.path.splitext(aadhaar_photo.filename)[1].lower()
+            if ext not in ['.jpg', '.jpeg', '.png']:
+                return render_template('register.html',
+                                       error_message="Invalid Aadhaar photo format. Only JPG, JPEG, and PNG are allowed.")
 
-            # Set session and redirect to capture photo
-            session['userid'] = userid
-            print("User ID saved in session. Redirecting to capture photo.")
+            filename = f"{secure_filename(userid)}_aadhaar{ext}"
+            aadhaar_photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            aadhaar_photo.save(aadhaar_photo_path)
+
+            verification_result = complete_aadhaar_verification(name, dob, aadhaar_photo_path)
+
+            if verification_result != "Registration successful!":
+                return render_template('register.html', error_message=verification_result)
+
+            # Save form data to temp_users table
+            conn = db.engine.connect()
+            conn.execute(
+                text('''INSERT INTO temp_users (name, email, userid, password, phone, area, dob, aadhaar_photo)
+                        VALUES (:name, :email, :userid, :password, :phone, :area, :dob, :aadhaar_photo)'''),
+                {
+                    'name': name,
+                    'email': email,
+                    'userid': userid,
+                    'password': password,
+                    'phone': phone,
+                    'area': area,
+                    'dob': dob,
+                    'aadhaar_photo': filename
+                }
+            )
+            conn.commit()
+            conn.close()
+
+            # Save session and redirect
+            session['registration_data'] = {
+                'name': name,
+                'email': email,
+                'userid': userid,
+                'password': password,
+                'phone': phone,
+                'area': area,
+                'dob': dob,
+                'aadhaar_photo': filename
+            }
             return redirect(url_for('capture_photo'))
 
-        except Exception as e:
-            print(f"Error during registration: {e}")
-            return "Registration failed. Please try again."
-
-    print("Rendering registration form.")
     return render_template('register.html')
 
 
@@ -155,46 +215,97 @@ def capture_photo():
     print("Accessing capture photo page.")
     return render_template('capture_photo.html')  # Assume you have a form to capture the photo
 
-# Set max content length to 16MB
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
+from flask import redirect, url_for  # make sure these are imported at the top
 
 @app.route('/save_photo', methods=['POST'])
 def save_photo():
-    if 'userid' in session:
-        # Check if file is present
-        file = request.files.get('photo')
-        if not file:
-            return "No photo uploaded", 400
+    if 'registration_data' not in session:
+        return "No session data found", 400
 
-        # Save the uploaded photo
-        voter_id = session['userid']  # Get voter ID from session
-        voter_dir = f"static/photo/user/{voter_id}"
-        os.makedirs(voter_dir, exist_ok=True)  # Ensure the directory exists
+    voter_id = str(session['registration_data']['userid']).strip()
+    if not voter_id:
+        return "Voter ID missing in session", 400
 
+    file = request.files.get('photo')
+    if not file:
+        cleanup_temp_user(voter_id)
+        return redirect(url_for('register'))
+
+    try:
+        voter_dir = os.path.join("static", "photo", "user", voter_id)
+        os.makedirs(voter_dir, exist_ok=True)
         file_path = os.path.join(voter_dir, f"photo_{voter_id}.png")
         file.save(file_path)
 
-        # Process the uploaded photo (e.g., detecting faces)
         image = cv2.imread(file_path)
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray_image, scaleFactor=1.1, minNeighbors=5)
 
         if len(faces) == 0:
-            return "No face detected", 400
+            cleanup_temp_user(voter_id)
+            return redirect(url_for('register'))
 
-        # Crop and save the detected face
         for (x, y, w, h) in faces:
-            face_image = image[y:y+h, x:x+w]
+            face_image = image[y:y + h, x:x + w]
             face_image_path = os.path.join(voter_dir, f"{voter_id}_face.png")
             cv2.imwrite(face_image_path, face_image)
+            break
+
+        with db.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT * FROM temp_users WHERE LOWER(TRIM(userid)) = :userid"),
+                {"userid": voter_id.lower()}
+            )
+            temp_user_row = result.fetchone()
+
+            if not temp_user_row:
+                cleanup_temp_user(voter_id)
+                return redirect(url_for('register'))
+
+            user_data = dict(temp_user_row._mapping)
+
+        new_user = User(
+            name=user_data['name'],
+            email=user_data['email'],
+            userid=user_data['userid'],
+            password=user_data['password'],
+            phone=user_data['phone'],
+            area=user_data['area'],
+            dob=user_data['dob'],
+            aadhaar_photo=user_data['aadhaar_photo'],
+            profile_photo=f"{voter_id}_face.png"
+        )
+
+        db.session.add(new_user)
+        db.session.flush()
+        db.session.execute(
+            text("DELETE FROM temp_users WHERE LOWER(TRIM(userid)) = :userid"),
+            {"userid": voter_id.lower()}
+        )
+        db.session.commit()
 
         return redirect(url_for('login'))
 
-    return "Session expired or user ID not found", 400
+    except Exception as e:
+        db.session.rollback()
+        cleanup_temp_user(voter_id)
+        return redirect(url_for('register'))
+
+def cleanup_temp_user(voter_id):
+    try:
+        db.session.execute(
+            text("DELETE FROM temp_users WHERE LOWER(TRIM(userid)) = :userid"),
+            {"userid": voter_id.lower()}
+        )
+        db.session.commit()
+        print(f"Cleaned up temp user {voter_id}")
+    except:
+        db.session.rollback()
+        print(f"Failed to clean up temp user {voter_id}")
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # User login
     if request.method == 'POST':
         userid = request.form['username']
         password = request.form['password']
@@ -202,14 +313,12 @@ def login():
 
         print(f"Attempting to log in user: {userid} with role: {role}")
 
-        # Admin login
         if userid == "admin" and password == "Admin@1234" and role == "admin":
             session['userid'] = userid
             session['role'] = role
             print(f"Admin {userid} logged in successfully.")
             return redirect(url_for('admin_dashboard'))
 
-        # Voter login
         user = User.query.filter_by(userid=userid, password=password).first()
         if user:
             session['userid'] = userid
@@ -342,12 +451,12 @@ def voter_dashboard():
     if 'userid' in session and session['role'] == 'voter':
         user = User.query.filter_by(userid=session['userid']).first()
         candidates = Candidate.query.join(Party).filter(Candidate.area == user.area).add_columns(
-            Party.party_name, Party.party_photo, Candidate.candidate_name).all()
+            Party.party_name, Party.logo_filename, Candidate.candidate_name, Candidate.area).all()
 
-        # Pass the user ID (userid) to the template
         return render_template('voter_dashboard.html', candidates=candidates, voter_id=user.userid)
 
     return redirect(url_for('login'))
+
 
 
 @app.route('/admin_dashboard')
@@ -528,13 +637,9 @@ def view_votes():
 
     return jsonify(response), 200
 
-
-
-
 # Ensure tables are created when the application starts
 with app.app_context():
     db.create_all()
-
 
 if __name__ == '__main__':
     app.run(debug=True)

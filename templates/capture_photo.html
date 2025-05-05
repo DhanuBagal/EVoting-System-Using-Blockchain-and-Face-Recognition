@@ -34,24 +34,23 @@
     <div id="capturedPhotos"></div>
     <p id="loading">Processing...</p>
 
-    <!-- Change action to your Flask route -->
-    <form id="photoForm" action="/save_photo" method="POST" enctype="multipart/form-data">
+    <!-- Update action to your Flask route -->
+    <form id="photoForm" action="{{ url_for('save_photo') }}" method="POST" enctype="multipart/form-data">
         <input type="file" name="photo" id="photoInput" required>
         <button id="submitBtn" type="submit" disabled>Submit</button>
     </form>
 
-    <button id="captureBtn">Capture</button> <!-- Capture button -->
+    <button id="captureBtn">Capture</button>
 
     <script>
-        // Access the camera
         const video = document.getElementById('video');
         const capturedPhotosContainer = document.getElementById('capturedPhotos');
         const photoInput = document.getElementById('photoInput');
         const loadingText = document.getElementById('loading');
         const submitBtn = document.getElementById('submitBtn');
-        const captureBtn = document.getElementById('captureBtn'); // Capture button
+        const captureBtn = document.getElementById('captureBtn');
 
-        // Request access to the user's camera
+        // Request camera access
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => {
                 video.srcObject = stream;
@@ -61,36 +60,31 @@
                 alert("Unable to access the camera. Please allow camera permissions.");
             });
 
-        // Capture photo when Capture button is clicked
+        // Capture button logic
         captureBtn.addEventListener('click', () => {
-            // Clear previous image
             capturedPhotosContainer.innerHTML = '';
 
-            // Capture new image
             const canvas = document.createElement('canvas');
             canvas.width = 640;
             canvas.height = 480;
             const context = canvas.getContext('2d');
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            const dataURL = canvas.toDataURL('image/png'); // Base64 string of the image
+            const dataURL = canvas.toDataURL('image/png');
             const img = document.createElement('img');
             img.src = dataURL;
             img.className = 'captured-image';
             capturedPhotosContainer.appendChild(img);
 
-            // Set the value of the hidden input field to the captured image's Base64 string
             const blob = dataURItoBlob(dataURL);
             const file = new File([blob], "photo.png", { type: "image/png" });
             const dataTransfer = new DataTransfer();
             dataTransfer.items.add(file);
             photoInput.files = dataTransfer.files;
 
-            // Enable the submit button
             submitBtn.disabled = false;
         });
 
-        // Convert Base64 to Blob
         function dataURItoBlob(dataURI) {
             var byteString = atob(dataURI.split(',')[1]);
             var arrayBuffer = new ArrayBuffer(byteString.length);
@@ -101,7 +95,7 @@
             return new Blob([uint8Array], { type: 'image/png' });
         }
 
-        // Display loading text when the form is submitted
+        // Show loading text during submission
         document.getElementById('photoForm').addEventListener('submit', function() {
             loadingText.style.display = 'block';
         });

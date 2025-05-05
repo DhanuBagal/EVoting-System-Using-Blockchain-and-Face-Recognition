@@ -7,8 +7,9 @@
     <title>Register</title>
 </head>
 <body>
-    <form action="/register" method="POST">
+    <form action="/register" method="POST" enctype="multipart/form-data">
         <h2>Register</h2>
+
         <label for="name">Name:</label>
         <input type="text" id="name" name="name" required>
 
@@ -24,10 +25,32 @@
         <label for="phone">Phone Number:</label>
         <input type="text" id="phone" name="phone" required>
 
-        <label for="area">Area:</label>
-        <input type="text" id="area" name="area" required>
+        <label for="area">Taluka (Area):</label>
+        <select id="area" name="area" required>
+            <option value="">--Select Taluka--</option>
+            <option value="Solapur North">Solapur North</option>
+            <option value="Solapur South">Solapur South</option>
+            <option value="Akkalkot">Akkalkot</option>
+            <option value="Barshi">Barshi</option>
+            <option value="Mohol">Mohol</option>
+            <option value="Madha">Madha</option>
+            <option value="Karmala">Karmala</option>
+            <option value="Sangola">Sangola</option>
+            <option value="Pandharpur">Pandharpur</option>
+            <option value="Malshiras">Malshiras</option>
+        </select>
+
+        <label for="dob">Date of Birth:</label>
+        <input type="date" id="dob" name="dob" required>
+
+        <label for="aadhaar_photo">Upload Aadhaar (Photo or PDF):</label>
+        <input type="file" id="aadhaar_photo" name="aadhaar_photo" accept=".jpg,.jpeg,.png,.pdf" required>
 
         <button type="submit">Register</button>
     </form>
+
+    {% if error_message %}
+        <p style="color: red;">{{ error_message }}</p>
+    {% endif %}
 </body>
 </html>

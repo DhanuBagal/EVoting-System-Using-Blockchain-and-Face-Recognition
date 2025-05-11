@@ -5,46 +5,126 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/css/style.css">
     <title>Voter Dashboard</title>
+
+    <style>
+        /* Message Box Styles */
+        .message-box {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            padding: 10px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            display: none;
+            min-width: 300px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .message-box.error {
+            background-color: #f44336;
+        }
+
+        .message-box.success {
+            background-color: #4CAF50;
+        }
+
+        .message-box.warning {
+            background-color: #ff9800;
+        }
+
+    </style>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const messages = document.querySelectorAll('.message-box');
+            if (messages.length > 0) {
+                messages.forEach((msg) => {
+                    msg.style.display = 'block';
+                    setTimeout(() => {
+                        msg.style.opacity = '0';
+                        setTimeout(() => msg.remove(), 500);
+                    }, 3000); // Hide after 3 seconds
+                });
+            }
+        });
+    </script>
 </head>
 <body>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="message-box {{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
     <header>
         <h2>Voter Dashboard</h2>
     </header>
+
     <nav>
-        <!-- <a href="{{ url_for('cast_vote') }}">Cast Vote</a> -->
         <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
     </nav>
 
-    <h3>Available Candidates in Your Area</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Party Name</th>
-                <th>Candidate Name</th>
-                <th>Area</th>
-                <th>Photo</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for candidate in candidates %}
-            <tr>
-                <td>{{ candidate.party_name }}</td>
-                <td>{{ candidate.candidate_name }}</td>
-                <td>{{ candidate.area }}</td>
-                <td><img src="data:image/jpeg;base64,{{ candidate.party_photo }}" alt="{{ candidate.party_name }} Photo" width="100"></td>
-                <td>
-                    <form action="{{ url_for('cast_vote') }}" method="POST">
-    <input type="hidden" name="voter_id" value="{{ voter_id }}"> <!-- Include voter ID -->
-    <input type="hidden" name="party_name" value="{{ candidate.party_name }}"> <!-- Include party name -->
-    <input type="hidden" name="candidate" value="{{ candidate.candidate_name }}"> <!-- Include candidate name -->
-    <button type="submit">Vote</button>
-</form>
+    <!-- Display Election Status Message -->
+    <div style="text-align: center; margin: 20px;">
+        <h3>{{ election_status }}</h3>
+    </div>
 
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    {% if election_status == "Election is live, you can vote now!" %}
+        <!-- Table displaying candidates -->
+        <h3>Available Candidates in Your Area</h3>
+        <table border="1" align="center">
+            <thead>
+                <tr>
+                    <th>Party Logo</th>
+                    <th>Party Name</th>
+                    <th>Candidate Name</th>
+                    <th>Area</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in candidates %}
+                <tr>
+                    <!-- Displaying party logo -->
+                    <td><img src="{{ url_for('static', filename='party_logos/' + candidate.logo_filename) }}" alt="{{ candidate.party_name }} Logo" width="50" height="50"></td>
+                    <td>{{ candidate.party_name }}</td>
+                    <td>{{ candidate.candidate_name }}</td>
+                    <td>{{ candidate.area }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('cast_vote') }}">
+                            <input type="hidden" name="voter_id" value="{{ voter_id }}"> <!-- Include voter ID -->
+                            <input type="hidden" name="party_name" value="{{ candidate.party_name }}"> <!-- Include party name -->
+                            <input type="hidden" name="area" value="{{ candidate.area  }}"><!-- Include election ID -->
+                            <button type="submit">Vote</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <!-- If no candidates to show, just show the election status message -->
+        <div style="text-align: center; margin-top: 20px;">
+            <h4>No candidates available for voting right now.</h4>
+        </div>
+    {% endif %}
+
+    <!-- Check if the voter already voted -->
+    {% if has_voted %}
+        <div class="message-box warning" style="text-align: center;">
+            You have already voted in this election.
+        </div>
+    {% endif %}
+
 </body>
 </html>

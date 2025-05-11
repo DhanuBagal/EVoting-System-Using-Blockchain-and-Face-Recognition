@@ -22,6 +22,20 @@
         h3 {
             margin-top: 40px;
         }
+        .message-box {
+            color: white;
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .success {
+            background-color: green;
+        }
+        .error {
+            background-color: red;
+        }
     </style>
 </head>
 <body>
@@ -67,7 +81,9 @@
     </form>
 
     {% if message %}
-        <p style="color: green; font-weight: bold;">{{ message }}</p>
+        <div class="message-box {% if message_type == 'success' %}success{% else %}error{% endif %}">
+            {{ message }}
+        </div>
     {% endif %}
 
     <h3>Existing Candidates (Grouped by Area)</h3>

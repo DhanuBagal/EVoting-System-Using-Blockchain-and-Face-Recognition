@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, redirect, url_for, session
+from flask import Flask, jsonify, request, render_template,flash, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 import os
 import re
@@ -8,11 +8,11 @@ import numpy as np
 import Blockchain
 import base64
 from werkzeug.utils import secure_filename
-from datetime import datetime
-from sqlalchemy import text
+from sqlalchemy import text,UniqueConstraint,func, and_, or_
 from aadhaar_verification import complete_aadhaar_verification
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import func
+from scipy.spatial import distance
+import json
+from datetime import datetime
 
 
 # Define paths for the models
@@ -76,12 +76,17 @@ class Candidate(db.Model):
     party = db.relationship('Party', backref=db.backref('candidates', lazy=True))
 
 
-# Models for Vote
-class Vote(db.Model):
+class Election(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)
-    candidate = db.Column(db.String(100), nullable=False)
-    blockchain_hash = db.Column(db.String(255), nullable=False)  # Ensure this is NOT NULL
+    date = db.Column(db.Date, nullable=False)
+    start_time = db.Column(db.Time, nullable=False)
+    end_time = db.Column(db.Time, nullable=False)
+
+    # Add a composite unique constraint for start_time and end_time
+    __table_args__ = (
+        UniqueConstraint('start_time', 'end_time', name='_start_end_time_uc'),
+    )
+
 
 
 # Initialize the blockchain
@@ -124,19 +129,16 @@ def register():
         dob = request.form['dob']
         aadhaar_photo = request.files['aadhaar_photo']
 
-        # Normalize inputs
         userid_lower = userid.lower().strip()
         name_lower = name.lower().strip()
         email_lower = email.lower().strip()
 
-        # Check existence in User table
         existing_user = User.query.filter(
             (func.lower(User.userid) == userid_lower) |
             (func.lower(User.name) == name_lower) |
             (func.lower(User.email) == email_lower)
         ).first()
 
-        # Check existence in temp_users table using raw SQL
         temp_user_query = text("""
             SELECT * FROM temp_users 
             WHERE LOWER(userid) = :userid OR LOWER(name) = :name OR LOWER(email) = :email
@@ -148,22 +150,23 @@ def register():
         }).first()
 
         if existing_user or temp_user_result:
-            return render_template('register.html',
-                                   error_message="User with same ID, name, or email already exists. Please try another.")
+            flash("User with same ID, name, or email already exists. Please try another.", "error")
+            return redirect(url_for('register'))
 
-        # Password and phone validation
         password_pattern = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$'
         if not re.match(password_pattern, password):
-            return render_template('register.html', error_message="Weak password format.")
-        if len(phone) != 10 or not phone.isdigit():
-            return render_template('register.html', error_message="Invalid phone number.")
+            flash("Weak password format. Password must be at least 8 characters long and include uppercase, lowercase, number, and special character.", "error")
+            return redirect(url_for('register'))
 
-        # Aadhaar photo validation
+        if len(phone) != 10 or not phone.isdigit():
+            flash("Invalid phone number. Must be exactly 10 digits.", "error")
+            return redirect(url_for('register'))
+
         if aadhaar_photo:
             ext = os.path.splitext(aadhaar_photo.filename)[1].lower()
             if ext not in ['.jpg', '.jpeg', '.png']:
-                return render_template('register.html',
-                                       error_message="Invalid Aadhaar photo format. Only JPG, JPEG, and PNG are allowed.")
+                flash("Invalid Aadhaar photo format. Only JPG, JPEG, and PNG are allowed.", "error")
+                return redirect(url_for('register'))
 
             filename = f"{secure_filename(userid)}_aadhaar{ext}"
             aadhaar_photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -172,9 +175,9 @@ def register():
             verification_result = complete_aadhaar_verification(name, dob, aadhaar_photo_path)
 
             if verification_result != "Registration successful!":
-                return render_template('register.html', error_message=verification_result)
+                flash(verification_result, "error")
+                return redirect(url_for('register'))
 
-            # Save form data to temp_users table
             conn = db.engine.connect()
             conn.execute(
                 text('''INSERT INTO temp_users (name, email, userid, password, phone, area, dob, aadhaar_photo)
@@ -193,7 +196,6 @@ def register():
             conn.commit()
             conn.close()
 
-            # Save session and redirect
             session['registration_data'] = {
                 'name': name,
                 'email': email,
@@ -204,6 +206,8 @@ def register():
                 'dob': dob,
                 'aadhaar_photo': filename
             }
+
+            flash("Registration successful. Proceed to capture photo.", "success")
             return redirect(url_for('capture_photo'))
 
     return render_template('register.html')
@@ -317,6 +321,7 @@ def login():
             session['userid'] = userid
             session['role'] = role
             print(f"Admin {userid} logged in successfully.")
+            flash("Admin logged in successfully!", "success")
             return redirect(url_for('admin_dashboard'))
 
         user = User.query.filter_by(userid=userid, password=password).first()
@@ -325,10 +330,12 @@ def login():
             session['role'] = role
             print(f"Voter {userid} logged in successfully.")
             if role != 'admin':
+                flash("Voter logged in successfully!", "success")
                 return redirect(url_for('validate_voter'))
         else:
             print("Invalid credentials provided.")
-            return "Invalid credentials. Please try again."
+            flash("Invalid credentials. Please try again.", "danger")
+            return redirect(url_for('login'))
 
     return render_template('login.html')
 
@@ -343,41 +350,50 @@ def logout():
     return redirect(url_for('home'))
 
 
-@app.route('/validate_voter', methods=['GET', 'POST'])
-def validate_voter():
-    # Photo validation for voter
-    if request.method == 'POST' and 'userid' in session:
-        userid = session['userid']
-        photo_data = request.form.get('photo')
 
-        print(f"Validating photo for user: {userid}")
+# Function to compute the Eye Aspect Ratio (EAR)
+def eye_aspect_ratio(eye):
+    A = distance.euclidean(eye[1], eye[5])
+    B = distance.euclidean(eye[2], eye[4])
+    C = distance.euclidean(eye[0], eye[3])
+    ear = (A + B) / (2.0 * C)
+    return ear
 
-        # Validate photo data
-        if not photo_data or ',' not in photo_data:
-            print("Invalid photo data received.")
-            return render_template('validate_voter.html', message="Invalid photo data.")
+# Function for liveness detection (blink detection)
+def check_liveness(captured_image, blink_count=2, time_window=10):
+    start_time = datetime.now()  # Using datetime for the start time
+    blinks_detected = 0
 
-        try:
-            # Validate the voter face using saved data
-            result, message = validate_voter_face(photo_data, userid)
-            if result:
-                if checkUser(session['userid']):
-                    return redirect(url_for('voter_dashboard'))  # Ensure this points to the dashboard route
+    while (datetime.now() - start_time).seconds < time_window:  # Compare current time with start_time
+        # Convert to grayscale
+        gray_captured = cv2.cvtColor(captured_image, cv2.COLOR_BGR2GRAY)
+        faces_captured = detector(gray_captured)
 
-                    # Proceed to voting page if not already voted
-                return redirect(url_for('voter_dashboard'))
+        if len(faces_captured) == 0:
+            return False, "No face detected in the captured image."
 
-            else:
-                print(f"Photo validation failed for user: {userid}. Message: {message}")
-                return render_template('validate_voter.html', message=message)
-        except Exception as e:
-            print(f"An error occurred during photo validation for user: {userid}. Error: {e}")
-            return render_template('validate_voter.html', message="An error occurred during validation.")
+        # Get facial landmarks
+        shape_captured = shape_predictor(gray_captured, faces_captured[0])
+        left_eye = [(shape_captured.part(i).x, shape_captured.part(i).y) for i in range(36, 42)]
+        right_eye = [(shape_captured.part(i).x, shape_captured.part(i).y) for i in range(42, 48)]
 
-    # Render the validation page on GET request or if no userid in session
-    return render_template('validate_voter.html')
+        # Calculate EAR (Eye Aspect Ratio) for blink detection
+        left_ear = eye_aspect_ratio(left_eye)
+        right_ear = eye_aspect_ratio(right_eye)
+        ear = (left_ear + right_ear) / 2.0
 
+        # If EAR is below the threshold, it indicates a blink
+        EAR_THRESHOLD = 0.2
+        if ear < EAR_THRESHOLD:
+            blinks_detected += 1
 
+        # If we have detected the required number of blinks, stop the check
+        if blinks_detected >= blink_count:
+            return True, f"Liveness detected with {blinks_detected} blinks."
+
+    return False, f"Liveness not detected. Only {blinks_detected} blinks detected."
+
+# Function to validate voter face
 def validate_voter_face(photo_data, userid):
     print("Face recognition process started.")
     try:
@@ -390,79 +406,113 @@ def validate_voter_face(photo_data, userid):
         # Path to user's registered face images
         voter_dir = f'static/photo/user/{userid}'
         if not os.path.exists(voter_dir):
-            print(f"No registered face found for user: {userid}.")
             return False, "No registered face found for this user."
 
         known_faces = []
         for img_name in os.listdir(voter_dir):
-            print(f"Loading image: {img_name}")
             img_path = os.path.join(voter_dir, img_name)
             img = cv2.imread(img_path)
             if img is None:
-                print(f"Failed to load image: {img_path}")
                 continue
 
             # Convert image to grayscale for face detection
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = detector(gray)  # Using your face detector
+            faces = detector(gray)
             if len(faces) > 0:
-                print("Face detected in:", img_name)
-                shape = shape_predictor(gray, faces[0])  # Shape predictor
-                face_descriptor = np.array(recognizer.compute_face_descriptor(img, shape))  # Compute face descriptor
+                shape = shape_predictor(gray, faces[0])
+                face_descriptor = np.array(recognizer.compute_face_descriptor(img, shape))
                 known_faces.append(face_descriptor)
-            else:
-                print("No face detected in:", img_name)
 
         if not known_faces:
-            print(f"No faces found in the registered images for user: {userid}.")
             return False, "No faces found in the registered images."
 
-        # Process the captured image
+        # Check for liveness (blink detection)
+        liveness_result, liveness_message = check_liveness(captured_image)
+        if not liveness_result:
+            return False, liveness_message
+
+        # Process the captured image for face recognition
         gray_captured = cv2.cvtColor(captured_image, cv2.COLOR_BGR2GRAY)
         faces_captured = detector(gray_captured)
         if len(faces_captured) == 0:
-            print(f"No face detected in the captured image for user: {userid}.")
             return False, "No face detected in the captured image."
 
-        # Compute descriptor for the captured face
         shape_captured = shape_predictor(gray_captured, faces_captured[0])
         captured_face_descriptor = np.array(recognizer.compute_face_descriptor(captured_image, shape_captured))
 
         # Calculate distances between the known faces and the captured face
         distances = np.linalg.norm(np.array(known_faces) - captured_face_descriptor, axis=1)
         min_distance = np.min(distances)
-        print(f"Minimum distance for user {userid}: {min_distance}")
 
-        # Check if the minimum distance is below the 0.6 threshold
+        # Check if the minimum distance is below the threshold
         if min_distance < 0.6:
-            print(f"Face validation successful for user {userid}.")
             return True, "Face validated successfully."
         else:
-            print(f"Face validation failed for user {userid}. No match found within threshold.")
             return False, "Face does not match."
 
     except Exception as e:
-        print(f"Error during face validation for user: {userid}. Error: {e}")
         return False, f"Error during face validation: {e}"
 
+# Route for validating the voter
+@app.route('/validate_voter', methods=['GET', 'POST'])
+def validate_voter():
+    if request.method == 'POST':  # This block is for when the form is submitted
+        if 'userid' in session:
+            userid = session['userid']
+            photo_data = request.form.get('photo')
+
+            if not photo_data or ',' not in photo_data:
+                return render_template('validate_voter.html', message="Invalid photo data.")
+
+            result, message = validate_voter_face(photo_data, userid)
+            if result:
+                flash("Validation successful! Redirecting to your dashboard.", "success")
+                return redirect(url_for('voter_dashboard'))
+            else:
+                return render_template('validate_voter.html', message=message)
+
+        return render_template('validate_voter.html', message="Session expired. Please login again.")
+
+    # This block handles the GET request (initial page load)
+    return render_template('validate_voter.html')
+
+
+
+from datetime import datetime, date
+from flask import flash, render_template, redirect, url_for
 
 @app.route('/voter_dashboard')
 def voter_dashboard():
     if 'userid' in session and session['role'] == 'voter':
         user = User.query.filter_by(userid=session['userid']).first()
-        candidates = Candidate.query.join(Party).filter(Candidate.area == user.area).add_columns(
-            Party.party_name, Party.logo_filename, Candidate.candidate_name, Candidate.area).all()
+        voter_area = user.area
 
-        return render_template('voter_dashboard.html', candidates=candidates, voter_id=user.userid)
+        # Get today's date and current time
+        today = date.today()
+        now = datetime.now().time()
 
-    return redirect(url_for('login'))
+        # Query for election scheduled for today and within the time window
+        election = Election.query.filter_by(date=today).filter(
+            Election.start_time <= now, Election.end_time >= now
+        ).first()
 
+        if election:
+            try:
+                # Election is live, show candidates
+                candidates = Candidate.query.join(Party).filter(Candidate.area == voter_area).add_columns(
+                    Party.party_name, Party.logo_filename, Candidate.candidate_name, Candidate.area).all()
+                election_status = "Election is live, you can vote now!"
+                flash("Election is live, you can vote now!", "success")
+                return render_template('voter_dashboard.html', candidates=candidates, voter_id=user.userid, election_status=election_status)
+            except Exception as e:
+                election_status = "There was an issue with fetching candidates."
+                flash("Error while fetching candidates: " + str(e), "danger")
+        else:
+            election_status = "Election is either not scheduled today or not open right now."
+            flash("Election is either not scheduled today or not open right now.", "warning")
 
+        return render_template('voter_dashboard.html', election_status=election_status)
 
-@app.route('/admin_dashboard')
-def admin_dashboard():
-    if 'userid' in session and session['role'] == 'admin':
-        return render_template('admin_dashboard.html')
     return redirect(url_for('login'))
 
 @app.route('/add_party', methods=['GET', 'POST'])
@@ -496,9 +546,11 @@ def add_party():
             # Check if candidate name already exists in the database
             if Candidate.query.filter_by(candidate_name=candidate_name).first():
                 message = "Candidate name already exists."
+                message_type = "error"
             # Check if the same party already has a candidate in the selected area
             elif Candidate.query.filter_by(party_id=selected_party_id, area=area).first():
                 message = "This party already has a candidate in the selected area."
+                message_type = "error"
             else:
                 # If party_id is present, update the existing candidate and party details
                 if party_id:  # Update existing candidate
@@ -517,8 +569,10 @@ def add_party():
                             db.session.add(new_candidate)
                         db.session.commit()
                         message = "Party and candidate details updated successfully."
+                        message_type = "success"
                     else:
                         message = "Party not found."
+                        message_type = "error"
                 else:  # Add new candidate under an existing party
                     # If party doesn't exist, retrieve it from the DB based on selected_party_id
                     party = Party.query.get(selected_party_id)
@@ -528,8 +582,10 @@ def add_party():
                         db.session.add(new_candidate)
                         db.session.commit()
                         message = "Candidate added successfully."
+                        message_type = "success"
                     else:
                         message = "Selected party does not exist."
+                        message_type = "error"
 
         all_candidates = Candidate.query.join(Party).add_columns(
             Candidate.candidate_name, Candidate.area,
@@ -542,45 +598,150 @@ def add_party():
             solapur_talukas=solapur_talukas,
             maharashtra_parties=maharashtra_parties,
             parties_logo_map=parties_logo_map,
-            message=locals().get('message')
+            message=locals().get('message'),
+            message_type=locals().get('message_type')
         )
 
     return redirect(url_for('login'))
 
 
+@app.route('/schedule_election', methods=['GET', 'POST'])
+def schedule_election():
+    if request.method == 'POST':
+        election_date = request.form.get('election_date')
+        start_time = request.form.get('start_time')
+        end_time = request.form.get('end_time')
 
-@app.route('/cast_vote', methods=['POST'])
+        # Validate that all fields are provided
+        if not (election_date and start_time and end_time):
+            flash('All fields are required', 'warning')
+            return redirect(url_for('schedule_election'))
+
+        # Convert input date and time to proper datetime objects
+        election_date = datetime.strptime(election_date, '%Y-%m-%d').date()
+        start_time = datetime.strptime(start_time, '%H:%M').time()
+        end_time = datetime.strptime(end_time, '%H:%M').time()
+
+        # Get current time and ensure election time is in the future
+        now = datetime.now()
+        current_date = now.date()
+        current_time = now.time()
+
+        if election_date < current_date or (election_date == current_date and start_time <= current_time):
+            flash("Election time must be in the future.", "danger")
+            return redirect(url_for('schedule_election'))
+
+        # Check if the new election time overlaps with any existing elections on the same date
+        overlapping_elections = Election.query.filter(
+            Election.date == election_date,
+            or_(
+                and_(
+                    Election.start_time <= start_time,
+                    Election.end_time > start_time  # Overlapping with the new election's start time
+                ),
+                and_(
+                    Election.start_time < end_time,
+                    Election.end_time >= end_time  # Overlapping with the new election's end time
+                ),
+                and_(
+                    Election.start_time >= start_time,
+                    Election.end_time <= end_time  # Entire election within the new election time range
+                ),
+                and_(
+                    Election.start_time <= start_time,
+                    Election.end_time >= end_time  # New election is completely within an existing one
+                )
+            )
+        ).all()
+
+        if overlapping_elections:
+            flash("Cannot schedule election, the selected time overlaps with another election.", "danger")
+            return redirect(url_for('schedule_election'))
+
+        # If no overlap, proceed to schedule the new election
+        new_election = Election(
+            date=election_date,
+            start_time=start_time,
+            end_time=end_time
+        )
+        db.session.add(new_election)
+        db.session.commit()
+        flash("Election scheduled successfully!", "success")
+        return redirect(url_for('schedule_election'))
+
+    return render_template('schedule_election.html')
+
+
+
+@app.route('/cast_vote', methods=['GET', 'POST'])
 def cast_vote():
-    # Retrieve form data
-    voter_id = request.form.get('voter_id')
-    party_name = request.form.get('party_name')
+    print("cast voter")
 
-    required = [voter_id, party_name]
-    if not all(required):
-        return 'Missing values', 400
+    # Check if the user is logged in and is a voter
+    if 'userid' not in session or session['role'] != 'voter':
+        flash("Unauthorized access.", "danger")
+        return redirect(url_for('login'))
 
-    # Create a new transaction (vote)
-    transaction_index = blockchain.new_transaction(voter_id, party_name)
+    if request.method == 'POST':
+        # Get form data
+        voter_id = request.form.get('voter_id')
+        party_name = request.form.get('party_name')
+        area = request.form.get('area')
 
-    # Mine a new block to store the vote
-    last_block = blockchain.last_block
-    proof = blockchain.proof_of_work(last_block['proof'])
-    new_block = blockchain.new_block(proof, blockchain.hash(last_block))
+        # Get today's election from DB
+        today = date.today()
+        now = datetime.now().time()
+        election = Election.query.filter_by(date=today).filter(
+            Election.start_time <= now, Election.end_time >= now
+        ).first()
 
-    # Retrieve details of the newly created block
-    block_hash = blockchain.hash(new_block)
-    timestamp = new_block['timestamp']
+        election_id = election.id if election else None
 
-    # Return the details of the vote transaction and block hash
-    response = {
-        'message': 'Vote successfully cast and recorded in the blockchain!',
-        'block_hash': block_hash,
-        'voter_id': voter_id,
-        'party_name': party_name,
-        'timestamp': timestamp
-    }
+        print("Voter ID:", voter_id)
+        print("Party Name:", party_name)
+        print("Election ID:", election_id)
+        print("Area:", area)
 
-    return jsonify(response), 201
+        # Validate form data
+        if not voter_id or not party_name or not election_id:
+            flash("Missing required information.", "danger")
+            return redirect(url_for('voter_dashboard'))
+
+        # Check if the user already voted
+        if blockchain.has_voted(voter_id, election_id):
+            flash("You have already voted in this election.", "warning")
+            return redirect(url_for('voter_dashboard'))
+
+        # Record vote in blockchain
+        tx_index = blockchain.new_transaction(voter_id, party_name, election_id, area)
+        last_block = blockchain.last_block
+        proof = blockchain.proof_of_work(last_block['proof'])
+        previous_hash = blockchain.hash(last_block)
+        new_block = blockchain.new_block(proof, previous_hash)
+
+        # Log block info
+        block_hash = blockchain.hash(new_block)
+        timestamp = datetime.utcfromtimestamp(new_block['timestamp'])
+        app.logger.info(f"--- New Vote Cast ---")
+        app.logger.info(f"Voter ID     : {voter_id}")
+        app.logger.info(f"Election ID  : {election_id}")
+        app.logger.info(f"Party Chosen : {party_name}")
+        app.logger.info(f"Block Index  : {new_block['index']}")
+        app.logger.info(f"Block Hash   : {block_hash}")
+        app.logger.info(f"Timestamp    : {timestamp}")
+        app.logger.info(f"Transactions : {json.dumps(new_block['transactions'], indent=4)}")
+        app.logger.info("----------------------")
+
+        # Clear session
+        session.pop('userid', None)
+        session.pop('role', None)
+
+        flash("Your vote has been securely cast and recorded on the blockchain!", "success")
+        return redirect(url_for('home'))
+
+    # For GET requests, render the dashboard (optional fallback)
+    return redirect(url_for('voter_dashboard'))
+
 
 # Mining route (mine a new block)
 @app.route('/mine', methods=['GET'])
@@ -601,6 +762,12 @@ def mine():
     )
     return response, 200
 
+@app.route('/admin_dashboard')
+def admin_dashboard():
+    if 'userid' in session and session['role'] == 'admin':
+        return render_template('admin_dashboard.html')
+    return redirect(url_for('login'))
+
 # Route to view the entire blockchain
 @app.route('/chain', methods=['GET'])
 def full_chain():
@@ -619,23 +786,34 @@ def view_votes():
     # Retrieve all the votes stored in the blockchain
     votes = blockchain.get_votes()
 
-    # Check if votes are empty
+    # Check if there are no votes
     if not votes:
-        return jsonify({"message": "No votes found."}), 200
+        return render_template('view_votes.html', message="No votes found.")
 
-    # Format the votes for display
-    formatted_votes = [
-        f"Voter ID: {vote['voter_id']}, Party: {vote['party_name']}, "
-        f"Timestamp: {vote['timestamp']}, Block Hash: {vote['block_hash']}"
-        for vote in votes
-    ]
+    # Dictionary to store vote counts by party, election, and area
+    vote_counts = {}
 
-    response = {
-        "message": "Here are all the votes",
-        "votes": formatted_votes
-    }
+    # Process each vote and count the number of votes per party and election
+    for vote in votes:
+        election = vote.get('election_id')  # Assuming each vote has an election identifier
+        party = vote.get('party_name')
+        area = vote.get('area')  # Assuming area information is present
 
-    return jsonify(response), 200
+        if election not in vote_counts:
+            vote_counts[election] = {}
+
+        if party not in vote_counts[election]:
+            vote_counts[election][party] = {'count': 0, 'areas': {}}
+
+        if area not in vote_counts[election][party]['areas']:
+            vote_counts[election][party]['areas'][area] = 0
+
+        # Increment vote count for the specific area
+        vote_counts[election][party]['areas'][area] += 1
+        vote_counts[election][party]['count'] += 1
+
+    return render_template('view_votes.html', vote_counts=vote_counts)
+
 
 # Ensure tables are created when the application starts
 with app.app_context():

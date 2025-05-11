@@ -7,21 +7,35 @@
     <title>Login</title>
 </head>
 <body>
+    <div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul>
+                    {% for category, message in messages %}
+                        <li class="{{ category }}">
+                            {{ message }}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+    </div>
+
     <form action="/login" method="POST">
-    <label for="username">User ID:</label>
-    <input type="text" id="username" name="username" required>
+        <label for="username">User ID:</label>
+        <input type="text" id="username" name="username" required>
 
-    <label for="password">Password:</label>
-    <input type="password" id="password" name="password" required>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
 
-    <label for="role">Login as:</label>
-    <select id="role" name="role">
-        <option value="admin">Admin</option>
-        <option value="voter">Voter</option>
-    </select>
+        <label for="role">Login as:</label>
+        <select id="role" name="role">
+            <option value="admin">Admin</option>
+            <option value="voter">Voter</option>
+        </select>
 
-    <button type="submit">Login</button>
-</form>
+        <button type="submit">Login</button>
+    </form>
 
 </body>
 </html>

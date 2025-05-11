@@ -23,16 +23,26 @@
             color: red;
             margin-top: 10px;
         }
+        #status {
+            color: green;
+            font-size: 14px;
+        }
+        #error {
+            color: red;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <h2>Validate Your Identity</h2>
 
     <video id="video" autoplay></video>
-    <button id="capture">Capture Photo</button>
+    <button id="capture" disabled>Capture Photo</button>
 
     <canvas id="canvas" width="400" height="300"></canvas>
     <p id="loading">Processing...</p>
+    <p id="status">Please blink at least twice before capturing.</p>
+    <p id="error"></p>
 
     <form id="photoForm" action="/validate_voter" method="POST" enctype="application/x-www-form-urlencoded">
         <input type="hidden" name="photo" id="photoInput">
@@ -46,7 +56,11 @@
         const photoInput = document.getElementById('photoInput');
         const context = canvas.getContext('2d');
         const loadingText = document.getElementById('loading');
+        const statusText = document.getElementById('status');
+        const errorText = document.getElementById('error');
         const submitBtn = document.getElementById('submitBtn');
+
+        let blinkCount = 0;
 
         // Start the webcam
         navigator.mediaDevices.getUserMedia({ video: true })
@@ -76,10 +90,46 @@
             submitBtn.disabled = false;
         });
 
+        // Function to handle blink detection and enable capture button
+        function detectBlink() {
+            // Assuming the server-side blink detection logic returns the status
+            // For example, blink detection can be performed periodically (e.g., every 2 seconds)
+            // For simplicity, we simulate blink detection by counting blinks
+
+            setInterval(() => {
+                if (blinkCount >= 2) {
+                    statusText.textContent = "Ready to capture. Please click 'Capture Photo'.";
+                    captureButton.disabled = false;
+                } else {
+                    statusText.textContent = `Please blink at least twice (blinks detected: ${blinkCount}/2).`;
+                    captureButton.disabled = true;
+                }
+            }, 1000);  // Check every second
+        }
+
+        // Simulate blink detection (this should ideally be replaced by actual backend blink detection logic)
+        setInterval(() => {
+            blinkCount++;  // Simulate blink detection increment (replace with actual blink detection logic)
+            detectBlink();
+        }, 3000); // Simulate a blink every 3 seconds (replace with actual detection)
+
         // Show "Processing..." when submitting
         document.getElementById('photoForm').addEventListener('submit', function() {
             loadingText.style.display = 'block';
+            statusText.textContent = "Validating your photo, please wait...";
         });
+
+        // Update error messages dynamically
+        function showErrorMessage(message) {
+            errorText.textContent = message;
+        }
+
+        // Simulate successful validation message
+        function showSuccessMessage() {
+            errorText.textContent = '';  // Clear any previous error
+            statusText.textContent = "Validation successful! Redirecting to your dashboard.";
+        }
+
     </script>
 </body>
 </html>

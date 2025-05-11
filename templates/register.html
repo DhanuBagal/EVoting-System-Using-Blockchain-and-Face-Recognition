@@ -5,8 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/css/style.css">
     <title>Register</title>
+
+    <style>
+        /* Message Box Styles */
+        .message-box {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            padding: 10px 20px;
+            margin: 10px;
+            border-radius: 5px;
+            display: none;
+            min-width: 300px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .message-box.error {
+            background-color: #f44336;
+        }
+
+        .message-box.success {
+            background-color: #4CAF50;
+        }
+
+        .message-box.info {
+            background-color: #2196F3;
+        }
+    </style>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const messages = document.querySelectorAll('.message-box');
+            if (messages.length > 0) {
+                messages.forEach((msg) => {
+                    msg.style.display = 'block';
+                    setTimeout(() => {
+                        msg.style.opacity = '0';
+                        setTimeout(() => msg.remove(), 500);
+                    }, 3000); // Hide after 3 seconds
+                });
+            }
+        });
+    </script>
 </head>
 <body>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="message-box {{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Register Form -->
     <form action="/register" method="POST" enctype="multipart/form-data">
         <h2>Register</h2>
 
@@ -49,8 +108,5 @@
         <button type="submit">Register</button>
     </form>
 
-    {% if error_message %}
-        <p style="color: red;">{{ error_message }}</p>
-    {% endif %}
 </body>
 </html>

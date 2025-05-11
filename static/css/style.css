@@ -65,3 +65,24 @@ form button {
 form button:hover {
     background-color: #45a049;
 }
+
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+li.success {
+    color: green;
+    background-color: #e8f5e9;
+    border: 1px solid green;
+    padding: 10px;
+    margin: 10px 0;
+}
+
+li.danger {
+    color: red;
+    background-color: #f8d7da;
+    border: 1px solid red;
+    padding: 10px;
+    margin: 10px 0;
+}

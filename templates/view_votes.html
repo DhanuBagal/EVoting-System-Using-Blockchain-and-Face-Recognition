@@ -17,23 +17,34 @@
         <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
     </nav>
 
-    <table>
-        <thead>
-            <tr>
-                <th>Voter ID</th>
-                <th>Candidate</th>
-                <th>Blockchain Hash</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for vote in votes %}
-            <tr>
-                <td>{{ vote.user_id }}</td>
-                <td>{{ vote.candidate }}</td>
-                <td>{{ vote.blockchain_hash }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <!-- Message if no votes are found -->
+    {% if message %}
+        <p>{{ message }}</p>
+    {% else %}
+        <table border="1">
+            <thead>
+                <tr>
+                    <th>Election</th>
+                    <th>Party</th>
+                    <th>Area</th>
+                    <th>Votes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for election, parties in vote_counts.items() %}
+                    {% for party, data in parties.items() %}
+                        {% for area, count in data['areas'].items() %}
+                            <tr>
+                                <td>{{ election }}</td>
+                                <td>{{ party }}</td>
+                                <td>{{ area }}</td>
+                                <td>{{ count }}</td>
+                            </tr>
+                        {% endfor %}
+                    {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
 </body>
 </html>

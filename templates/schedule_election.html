@@ -5,20 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/css/style.css">
     <title>Schedule Election</title>
+    <style>
+        .flashes {
+            list-style-type: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+        .flashes li {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            color: white;
+        }
+        .flashes .danger {
+            background-color: #f44336;
+        }
+        .flashes .warning {
+            background-color: #ff9800;
+        }
+        .flashes .success {
+            background-color: #4caf50;
+        }
+    </style>
 </head>
 <body>
     <header>
         <h2>Schedule Election</h2>
     </header>
     <nav>
-                <a href="/add_party">Add Party</a>
-                <a href="/view_votes">View Votes</a>
-                <a href="/schedule_election">Schedule Election</a>
-                <a href="{{ url_for('logout') }}">Logout</a> <!-- Logout link -->
-            </nav>
+        <a href="/add_party">Add Party</a>
+        <a href="/view_votes">View Votes</a>
+        <a href="/schedule_election">Schedule Election</a>
+        <a href="{{ url_for('logout') }}">Logout</a>
+    </nav>
+
+    <!-- Display flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul class="flashes">
+            {% for category, message in messages %}
+                <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+
     <form action="/schedule_election" method="POST">
         <label for="election_date">Election Date:</label>
         <input type="date" id="election_date" name="election_date" required>
+
+        <label for="start_time">Start Time:</label>
+        <input type="time" id="start_time" name="start_time" required>
+
+        <label for="end_time">End Time:</label>
+        <input type="time" id="end_time" name="end_time" required>
+
         <button type="submit">Schedule Election</button>
     </form>
 </body>
